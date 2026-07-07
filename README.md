@@ -99,16 +99,64 @@ Extension settings can be set via JSON config files. Project-local settings over
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `webTools` | boolean | `true` | Set to `false` to prevent `ollama_web_search` and `ollama_web_fetch` from being registered |
+| `inferenceParams` | object | *(none)* | Default sampling params applied to every Ollama Cloud model request (e.g. `temperature`, `top_p`, `seed`). See [Inference params](#inference-params) below. |
+| `models` | object | *(none)* | Per-model overrides keyed by model id; merged on top of `inferenceParams` for the active model. See [Inference params](#inference-params) below. |
 
 Example `ollama-cloud.json`:
 
 ```json
 {
-  "webTools": false
+  "webTools": false,
+  "inferenceParams": {
+    "temperature": 0.2,
+    "top_p": 0.9
+  },
+  "models": {
+    "qwen3-coder:32b": {
+      "temperature": 0.6,
+      "top_k": 40
+    },
+    "deepseek-v4:latest": {
+      "repeat_penalty": 1.1
+    }
+  }
 }
 ```
 
 The `PI_OLLAMA_WEB_TOOLS` environment variable still works as an override above config files. Set it to `0`, `false`, `no`, or `off` to disable web tools regardless of config file settings.
+
+#### Inference params
+
+`inferenceParams` and `models` let you set per-model sampling options that are injected into the OpenAI-compatible request body right before it is sent to Ollama Cloud. This is useful when a model defaults to a temperature that's too high for coding, or you want a fixed `seed` for reproducible runs.
+
+Resolution for the active model is: global `inferenceParams` < per-model `models[id]` (per-key override). Project-local config extends global config rather than replacing it, so you can set broad defaults globally and tighten specific models per project.
+
+Accepted keys (all optional; unknown keys are silently dropped so a typo can't clobber core request fields like `model` or `messages`):
+
+| Key | Type | Notes |
+|---|---|---|
+| `temperature` | number | |
+| `top_p` | number | |
+| `top_k` | number | Ollama-native; Cloud may ignore depending on model |
+| `min_p` | number | Ollama-native |
+| `typical_p` | number | Ollama-native |
+| `tfs_z` | number | Ollama-native |
+| `repeat_penalty` | number | Ollama-native |
+| `repeat_last_n` | number | Ollama-native |
+| `seed` | number | |
+| `num_predict` | number | Ollama-native; overrides output length |
+| `num_ctx` | number | Ollama-native; context window override |
+| `num_gpu` | number | Ollama-native |
+| `num_thread` | number | Ollama-native |
+| `mirostat` | number | 0, 1, or 2 |
+| `mirostat_tau` | number | |
+| `mirostat_eta` | number | |
+| `frequency_penalty` | number | OpenAI-standard |
+| `presence_penalty` | number | OpenAI-standard |
+| `max_tokens` | number | Overrides the model default (32768) |
+| `stop` | string \| string[] | Stop sequence(s) |
+
+Non-finite numbers (`NaN`, `Infinity`) and keys outside this list are dropped during validation. Configured values override anything Pi assembles itself (including Pi's own temperature defaults). See [Ollama OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility) for which params Cloud honors per model.
 
 ### 4. Fetch models (optional)
 

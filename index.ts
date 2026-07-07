@@ -28,7 +28,7 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
-import { loadConfig, resolveWebToolsEnv } from "./config.ts";
+import { loadConfig, type OllamaCloudConfig, resolveInferenceParams, resolveWebToolsEnv } from "./config.ts";
 import { GENERATED_MODELS } from "./models.generated.ts";
 import {
   assembleModels,
@@ -140,6 +140,39 @@ export default async function (pi: ExtensionAPI) {
       await runRefresh(pi, ctx);
     });
   }
+
+  // --- Inference params (per-model sampling overrides) ---
+
+  // Config is cwd-dependent (project-local `.pi/ollama-cloud.json` overrides
+  // global), and before_provider_request fires for every provider — not just
+  // ours — so we cache per cwd and only inject when the active model belongs
+  // to the ollama-cloud provider.
+  const configCache = new Map<string, OllamaCloudConfig>();
+
+  /**
+   * Inject per-model inference params into the OpenAI-compatible request body.
+   * Runs as the last mutation before the request is sent, so configured params
+   * override anything Pi assembled (including its own temperature defaults).
+   */
+  pi.on("before_provider_request", (event, ctx) => {
+    const model = ctx.model;
+    if (model?.provider !== "ollama-cloud") return undefined;
+
+    let config = configCache.get(ctx.cwd);
+    if (!config) {
+      config = loadConfig(ctx.cwd);
+      configCache.set(ctx.cwd, config);
+    }
+
+    const params = resolveInferenceParams(config, model.id);
+    if (Object.keys(params).length === 0) return undefined;
+
+    // Only merge into an object payload; never touch non-object payloads.
+    if (event.payload == null || typeof event.payload !== "object" || Array.isArray(event.payload)) {
+      return undefined;
+    }
+    return { ...(event.payload as Record<string, unknown>), ...params };
+  });
 
   // --- Web Tools Management ---
 
