@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Fix extension startup on pi v0.80.8+ after the removal of `AuthStorage`. Web tools now resolve the Ollama Cloud credential through the extension context's model registry.
+- Migrate tool schemas from `@sinclair/typebox` to pi's current `typebox` package.
+
 ## [0.6.0] - 2026-06-05
 
 - Fix `apiKey` registered as a literal string instead of an environment variable reference. Changed `apiKey: "OLLAMA_API_KEY"` to `apiKey: "$OLLAMA_API_KEY"` in `registerProvider`, resolving the deprecation warning emitted by pi v0.77.0+ and making the `OLLAMA_API_KEY` env var work alongside `auth.json` (env var takes priority, falls back to `auth.json`). Thanks @mandusm (#21).

@@ -3,14 +3,19 @@
  *
  * Self-contained module. Depends on:
  *   - models.ts       - only for OLLAMA_BASE URL constant
- *   - pi-coding-agent - AuthStorage, ExtensionAPI, keyHint, truncateToVisualLines
+ *   - pi-coding-agent - ExtensionAPI, ExtensionContext, keyHint, truncateToVisualLines
  *   - pi-tui          - Text, truncateToWidth
  * Does NOT depend on provider registration or model fetching internals.
  */
 
-import { AuthStorage, type ExtensionAPI, keyHint, truncateToVisualLines } from "@earendil-works/pi-coding-agent";
+import {
+  type ExtensionAPI,
+  type ExtensionContext,
+  keyHint,
+  truncateToVisualLines,
+} from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { OLLAMA_BASE } from "./models.ts";
 
 // --- Types ---
@@ -31,10 +36,8 @@ interface FetchResponse {
 
 // --- Helpers ---
 
-const authStorage = AuthStorage.create();
-
-async function getCloudApiKey(): Promise<string | undefined> {
-  return authStorage.getApiKey("ollama-cloud") ?? process.env.OLLAMA_API_KEY;
+async function getCloudApiKey(ctx: ExtensionContext): Promise<string | undefined> {
+  return (await ctx.modelRegistry.getApiKeyForProvider("ollama-cloud")) ?? process.env.OLLAMA_API_KEY;
 }
 
 function noApiKeyError() {
@@ -128,8 +131,8 @@ export function registerWebSearchTool(pi: ExtensionAPI) {
         }),
       ),
     }),
-    async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
-      const apiKey = await getCloudApiKey();
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const apiKey = await getCloudApiKey(ctx);
       if (!apiKey) return noApiKeyError();
 
       try {
@@ -210,8 +213,8 @@ export function registerWebFetchTool(pi: ExtensionAPI) {
     parameters: Type.Object({
       url: Type.String({ description: "URL to fetch and extract content from", format: "uri" }),
     }),
-    async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
-      const apiKey = await getCloudApiKey();
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const apiKey = await getCloudApiKey(ctx);
       if (!apiKey) return noApiKeyError();
 
       try {
