@@ -15,7 +15,8 @@
     "web-tools.ts",
     "CHANGELOG.md",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "skills/ollama-cloud-config/SKILL.md"
   ],
   "repository": {
     "type": "git",
@@ -31,6 +32,9 @@
   "pi": {
     "extensions": [
       "./index.ts"
+    ],
+    "skills": [
+      "./skills"
     ]
   },
   "peerDependencies": {

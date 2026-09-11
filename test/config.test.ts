@@ -2,7 +2,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type OllamaCloudConfig, mergeInferenceParams, resolveInferenceParams } from "../config.ts";
+import type { ModelOverrides, OllamaCloudConfig } from "../config.ts";
+import { applyModelOverrides, mergeInferenceParams, resolveInferenceParams } from "../config.ts";
+import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 
 // loadConfig is exercised via the filesystem below. It reads the global path
 // from getAgentDir() (controlled by PI_CODING_AGENT_DIR) and the project path
@@ -197,5 +199,51 @@ describe("resolveInferenceParams", () => {
 
   it("returns empty when neither global nor per-model is configured", () => {
     expect(resolveInferenceParams({}, "any")).toEqual({});
+  });
+});
+
+// ============================================================================
+// modelOverrides (registration-time contextWindow / maxTokens caps)
+// ============================================================================
+
+describe("loadConfig modelOverrides", () => {
+  it("sanitizes: non-numeric contextWindow dropped, valid kept", () => {
+    writeProject({ modelOverrides: { "glm-5.3": { contextWindow: "300k" }, "glm-5.3-flash": { contextWindow: 300000 } } });
+    expect(loadConfig(projectDir).modelOverrides).toEqual({ "glm-5.3-flash": { contextWindow: 300000 } });
+  });
+
+  it("drops entries with no valid keys", () => {
+    writeProject({ modelOverrides: { "glm-5.3": { nonsense: true } } });
+    expect(loadConfig(projectDir).modelOverrides).toBeUndefined();
+  });
+
+  it("deep-merges global and project per-key (project wins)", () => {
+    writeGlobal({ modelOverrides: { "glm-5.3": { contextWindow: 400000, maxTokens: 16384 } } });
+    writeProject({ modelOverrides: { "glm-5.3": { contextWindow: 300000 } } });
+    expect(loadConfig(projectDir).modelOverrides).toEqual({
+      "glm-5.3": { contextWindow: 300000, maxTokens: 16384 },
+    });
+  });
+});
+
+describe("applyModelOverrides", () => {
+  const models = [
+    { id: "glm-5.3", name: "glm-5.3", contextWindow: 1048576, maxTokens: 32768 },
+    { id: "kimi-k2.7-code", name: "kimi", contextWindow: 262144, maxTokens: 32768 },
+  ] as ProviderModelConfig[];
+
+  it("caps contextWindow for matching ids, leaves other models untouched", () => {
+    const out = applyModelOverrides(models, { "glm-5.3": { contextWindow: 300000 } } satisfies Record<string, ModelOverrides>);
+    expect(out[0]).toMatchObject({ id: "glm-5.3", contextWindow: 300000, maxTokens: 32768 });
+    expect(out[1]).toEqual(models[1]);
+  });
+
+  it("returns the input array untouched when nothing is configured", () => {
+    expect(applyModelOverrides(models, undefined)).toBe(models);
+  });
+
+  it("ignores overrides for ids not in the list", () => {
+    const out = applyModelOverrides(models, { "no-such-model": { contextWindow: 1000 } });
+    expect(out).toEqual(models);
   });
 });

@@ -5,7 +5,8 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 - Fix extension startup on pi v0.80.8+ after the removal of `AuthStorage`. Web tools now resolve the Ollama Cloud credential through the extension context's model registry.
-- Migrate tool schemas from `@sinclair/typebox` to pi's current `typebox` package.
+- Add `modelOverrides` config: per-model `contextWindow` / `maxTokens` registration overrides (global `~/.pi/agent/ollama-cloud.json` + project-local `.pi/ollama-cloud.json`, project wins per key). Applied on every provider registration so caps survive `/ollama-cloud-refresh`. Useful to cap a model's advertised context below its real limit so Pi compacts earlier.
+- Ship `ollama-cloud-config` skill teaching agents the config surface (sampling params, registration overrides, web tools). Available to any agent that installs the package.
 
 ## [0.6.0] - 2026-06-05
 

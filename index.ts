@@ -28,7 +28,14 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
-import { loadConfig, type OllamaCloudConfig, resolveInferenceParams, resolveWebToolsEnv } from "./config.ts";
+import {
+  applyModelOverrides,
+  loadConfig,
+  type ModelOverrides,
+  type OllamaCloudConfig,
+  resolveInferenceParams,
+  resolveWebToolsEnv,
+} from "./config.ts";
 import { GENERATED_MODELS } from "./models.generated.ts";
 import {
   assembleModels,
@@ -42,13 +49,13 @@ import { registerWebFetchTool, registerWebSearchTool } from "./web-tools.ts";
 
 // --- Registrations ---
 
-function registerProvider(pi: ExtensionAPI, models: ProviderModelConfig[]) {
+function registerProvider(pi: ExtensionAPI, models: ProviderModelConfig[], overrides?: Record<string, ModelOverrides>) {
   pi.registerProvider("ollama-cloud", {
     name: "Ollama Cloud",
     baseUrl: `${OLLAMA_BASE}/v1`,
     apiKey: "$OLLAMA_API_KEY",
     api: "openai-completions",
-    models,
+    models: applyModelOverrides(models, overrides),
   });
 }
 
@@ -98,7 +105,7 @@ async function runRefresh(pi: ExtensionAPI, ctx: Pick<ExtensionCommandContext, "
     writeCache(raw);
     const newModels = assembleModels(raw);
 
-    registerProvider(pi, newModels);
+    registerProvider(pi, newModels, loadConfig(ctx.cwd).modelOverrides);
 
     ctx.ui.notify(`Registered ${newModels.length} Ollama Cloud models`, "info");
     return true;
@@ -129,7 +136,10 @@ export default async function (pi: ExtensionAPI) {
   // from /ollama-cloud-refresh takes precedence over the generated list.
   const models = cacheState.status === "missing" ? GENERATED_MODELS : assembleModels(cacheState.models);
 
-  registerProvider(pi, models);
+  // Registration overrides (contextWindow/maxTokens caps) are cwd-dependent:
+  // at factory time there is no ctx yet, so use process.cwd(). They are
+  // re-applied on every /ollama-cloud-refresh, so they survive catalog updates.
+  registerProvider(pi, models, loadConfig(process.cwd()).modelOverrides);
   registerRefreshCommand(pi);
 
   if (needsStartupRefresh) {

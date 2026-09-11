@@ -13,14 +13,15 @@
  * {
  *   "webTools": false,
  *   "inferenceParams": { "temperature": 0.2 },
- *   "models": { "qwen3-coder:32b": { "temperature": 0.6 } }
+ *   "models": { "qwen3-coder:32b": { "temperature": 0.6 } },
+ *   "modelOverrides": { "glm-5.3": { "contextWindow": 300000 } }
  * }
  * ```
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 
 // --- Types ---
 
@@ -61,6 +62,21 @@ export interface InferenceParams {
   /** Stop sequence(s). Single string or array of strings. */
   stop?: string | string[];
 }
+/**
+ * Per-model registration overrides, keyed by model id (e.g. "glm-5.3").
+ *
+ * Unlike `models` (per-request sampling params), these change what pi
+ * believes about the model at registration time: the advertised context
+ * window (pi's compaction reserve scales with it) and max output tokens.
+ * They are re-applied on every registration, so they survive
+ * /ollama-cloud-refresh catalog updates.
+ */
+export interface ModelOverrides {
+  /** Advertised context window in tokens. Typically used to cap below the real limit. */
+  contextWindow?: number;
+  /** Advertised max output tokens. */
+  maxTokens?: number;
+}
 
 export interface OllamaCloudConfig {
   /** When false, ollama_web_search and ollama_web_fetch tools are not registered. Default: true. */
@@ -75,6 +91,12 @@ export interface OllamaCloudConfig {
    * Merged on top of `inferenceParams` (per-key override) for the active model.
    */
   models?: Record<string, InferenceParams>;
+  /**
+   * Per-model registration overrides, keyed by model id (e.g. "glm-5.3").
+   * Merged per-key across global and project configs (project wins).
+   * Entries for ids not in the current catalog are ignored.
+   */
+  modelOverrides?: Record<string, ModelOverrides>;
 }
 
 // --- Defaults ---
@@ -150,6 +172,24 @@ function sanitizeModels(raw: unknown): Record<string, InferenceParams> | undefin
 }
 
 /**
+ * Validate a raw object into a per-model map of ModelOverrides.
+ * Same shape as sanitizeModels: unknown keys dropped, wrong types dropped.
+ */
+function sanitizeModelOverrides(raw: unknown): Record<string, ModelOverrides> | undefined {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: Record<string, ModelOverrides> = {};
+  for (const [id, entry] of Object.entries(raw as Record<string, unknown>)) {
+    if (entry == null || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const e = entry as Record<string, unknown>;
+    const sanitized: ModelOverrides = {};
+    if (isFiniteNumber(e.contextWindow)) sanitized.contextWindow = e.contextWindow;
+    if (isFiniteNumber(e.maxTokens)) sanitized.maxTokens = e.maxTokens;
+    if (Object.keys(sanitized).length > 0) out[id] = sanitized;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
  * Validate a parsed JSON object against the known schema.
  * Unknown keys are silently dropped; values with wrong types fall back to undefined.
  */
@@ -165,6 +205,7 @@ function sanitizeConfig(raw: Record<string, unknown>): OllamaCloudConfig {
     if (Object.keys(sanitized).length > 0) out.inferenceParams = sanitized;
   }
   out.models = sanitizeModels(raw.models);
+  out.modelOverrides = sanitizeModelOverrides(raw.modelOverrides);
   return out;
 }
 
@@ -182,16 +223,16 @@ export function mergeInferenceParams(base?: InferenceParams, override?: Inferenc
  * Merge two per-model maps: for each model id, `override`'s entry is merged
  * per-key on top of `base`'s entry; ids only in `base` are kept as-is.
  */
-function mergeModelsMap(
-  base?: Record<string, InferenceParams>,
-  override?: Record<string, InferenceParams>,
-): Record<string, InferenceParams> | undefined {
+function mergePerModelMap<T extends object>(
+  base?: Record<string, T>,
+  override?: Record<string, T>,
+): Record<string, T> | undefined {
   if (!base && !override) return undefined;
   if (!base) return override;
   if (!override) return base;
-  const out: Record<string, InferenceParams> = { ...base };
-  for (const [id, params] of Object.entries(override)) {
-    out[id] = mergeInferenceParams(out[id], params);
+  const out: Record<string, T> = { ...base };
+  for (const [id, entry] of Object.entries(override)) {
+    out[id] = { ...(out[id] ?? {}), ...entry };
   }
   return out;
 }
@@ -203,6 +244,27 @@ function mergeModelsMap(
  */
 export function resolveInferenceParams(config: OllamaCloudConfig, modelId: string): InferenceParams {
   return mergeInferenceParams(config.inferenceParams, config.models?.[modelId]);
+}
+
+/**
+ * Apply per-model registration overrides to an assembled model list.
+ * Unknown ids are ignored; only contextWindow/maxTokens can be overridden.
+ * Returns the input array untouched when nothing is configured.
+ */
+export function applyModelOverrides(
+  models: ProviderModelConfig[],
+  overrides?: Record<string, ModelOverrides>,
+): ProviderModelConfig[] {
+  if (!overrides) return models;
+  return models.map((model) => {
+    const o = overrides[model.id];
+    if (!o) return model;
+    return {
+      ...model,
+      contextWindow: o.contextWindow ?? model.contextWindow,
+      maxTokens: o.maxTokens ?? model.maxTokens,
+    };
+  });
 }
 
 // --- Loader ---
@@ -250,7 +312,7 @@ export function loadConfig(cwd: string): OllamaCloudConfig {
 
   // Merge with defaults: defaults < global < project.
   // Scalar keys (webTools) follow the shallow spread; inferenceParams and the
-  // per-model map are deep-merged so project-local config extends rather than
+  // per-model maps are deep-merged so project-local config extends rather than
   // replaces global defaults (global defaults + project per-model overrides).
   const merged: OllamaCloudConfig = {
     ...DEFAULT_CONFIG,
@@ -258,7 +320,8 @@ export function loadConfig(cwd: string): OllamaCloudConfig {
     ...projectConfig,
   };
   merged.inferenceParams = mergeInferenceParams(globalConfig.inferenceParams, projectConfig.inferenceParams);
-  merged.models = mergeModelsMap(globalConfig.models, projectConfig.models);
+  merged.models = mergePerModelMap(globalConfig.models, projectConfig.models);
+  merged.modelOverrides = mergePerModelMap(globalConfig.modelOverrides, projectConfig.modelOverrides);
   // mergeInferenceParams returns {} when nothing is configured; normalize to
   // undefined so the config object stays clean (matches sanitizeConfig output).
   if (merged.inferenceParams && Object.keys(merged.inferenceParams).length === 0) {

@@ -101,6 +101,7 @@ Extension settings can be set via JSON config files. Project-local settings over
 | `webTools` | boolean | `true` | Set to `false` to prevent `ollama_web_search` and `ollama_web_fetch` from being registered |
 | `inferenceParams` | object | *(none)* | Default sampling params applied to every Ollama Cloud model request (e.g. `temperature`, `top_p`, `seed`). See [Inference params](#inference-params) below. |
 | `models` | object | *(none)* | Per-model overrides keyed by model id; merged on top of `inferenceParams` for the active model. See [Inference params](#inference-params) below. |
+| `modelOverrides` | object | *(none)* | Per-model registration overrides keyed by model id: `contextWindow` / `maxTokens` as pi sees them. See [Model registration overrides](#model-registration-overrides) below. |
 
 Example `ollama-cloud.json`:
 
@@ -157,6 +158,26 @@ Accepted keys (all optional; unknown keys are silently dropped so a typo can't c
 | `stop` | string \| string[] | Stop sequence(s) |
 
 Non-finite numbers (`NaN`, `Infinity`) and keys outside this list are dropped during validation. Configured values override anything Pi assembles itself (including Pi's own temperature defaults). See [Ollama OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility) for which params Cloud honors per model.
+
+#### Model registration overrides
+
+`modelOverrides` changes what pi believes about a model at registration time — as opposed to `models`, which changes what gets sent per request. Two keys, both optional:
+
+| Key | Type | Notes |
+|---|---|---|
+| `contextWindow` | number | Advertised context window. Cap below the real limit to make pi compact earlier; never raise above the real limit |
+| `maxTokens` | number | Advertised max output tokens |
+
+```json
+{
+  "modelOverrides": {
+    "glm-5.3": { "contextWindow": 300000 },
+    "glm-5.3-flash": { "contextWindow": 300000 }
+  }
+}
+```
+
+Overrides are applied on every registration (startup, `/ollama-cloud-refresh`, stale-cache auto-refresh), so caps survive catalog updates. Ids not in the current catalog are ignored. Deep-merged across global and project configs (project wins per key), same as `inferenceParams`.
 
 ### 4. Fetch models (optional)
 
