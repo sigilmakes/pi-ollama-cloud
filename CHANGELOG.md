@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Collapsed results render no preview at all — the tool panel header (`ollama_web_search · done`) carries status, so collapsed rows cost no transcript height. Failures still render their message; expand (ctrl+o) for full output.
+
 - Bounded tool output to the built-in truncation convention: `ollama_web_search` snippets capped at 300 chars (fetch a result's URL for full content); `ollama_web_fetch` returns a 4000-char preview plus the full text on disk under `~/.pi/agent/cache/ollama-web-fetches/` (path in result text and details). `PI_OLLAMA_WEB_MAX_PREVIEW` overrides the fetch preview size. Tool results no longer dump whole pages into context or the transcript.
 - Collapsed result preview now matches the built-in bash tool's 5-line convention (was 8).
 

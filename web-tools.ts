@@ -11,14 +11,8 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  type ExtensionAPI,
-  type ExtensionContext,
-  getAgentDir,
-  keyHint,
-  truncateToVisualLines,
-} from "@earendil-works/pi-coding-agent";
-import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { OLLAMA_BASE } from "./models.ts";
 
@@ -79,12 +73,9 @@ function noApiKeyError() {
   };
 }
 
-// Collapsed result preview: match the built-in bash tool's 5-line convention.
-const PREVIEW_LINES = 5;
-
 /**
- * Build a renderResult handler that shows a truncated preview when collapsed
- * and the full output when expanded. Follows the bash tool pattern.
+ * Build a renderResult handler. Collapsed: nothing but failures (the panel
+ * header carries status); expanded: the full output.
  */
 function createRenderResult() {
   return (
@@ -94,10 +85,8 @@ function createRenderResult() {
     context: {
       invalidate: () => void;
       lastComponent: import("@earendil-works/pi-tui").Component | undefined;
-      state: { cachedWidth?: number; cachedLines?: string[]; cachedSkipped?: number };
     },
   ) => {
-    const state = context.state;
     const output = result.content
       .map((c) => c.text)
       .join("")
@@ -107,34 +96,18 @@ function createRenderResult() {
       .map((line: string) => theme.fg("toolOutput", line))
       .join("\n");
 
-    if (options.expanded || result.isError) {
-      const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-      text.setText(result.isError ? styledOutput : `\n${styledOutput}`);
-      return text;
+    // Collapsed: the tool panel header already carries status (label · done/error).
+    // Surface nothing but failures so collapsed rows cost no transcript height.
+    if (!options.expanded) {
+      if (!result.isError) return new Text("", 0, 0);
+      const failure = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      failure.setText(styledOutput);
+      return failure;
     }
 
-    return {
-      render: (width: number) => {
-        if (state.cachedWidth !== width) {
-          const preview = truncateToVisualLines(styledOutput, PREVIEW_LINES, width);
-          state.cachedLines = preview.visualLines;
-          state.cachedSkipped = preview.skippedCount;
-          state.cachedWidth = width;
-        }
-        if (state.cachedSkipped && state.cachedSkipped > 0) {
-          const hint =
-            theme.fg("muted", `... (${state.cachedSkipped} earlier lines,`) +
-            ` ${keyHint("app.tools.expand", "to expand")})`;
-          return ["", truncateToWidth(hint, width, "..."), ...(state.cachedLines ?? [])];
-        }
-        return ["", ...(state.cachedLines ?? [])];
-      },
-      invalidate: () => {
-        state.cachedWidth = undefined;
-        state.cachedLines = undefined;
-        state.cachedSkipped = undefined;
-      },
-    };
+    const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+    text.setText(result.isError ? styledOutput : `\n${styledOutput}`);
+    return text;
   };
 }
 
