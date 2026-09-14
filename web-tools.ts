@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Container, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { OLLAMA_BASE } from "./models.ts";
 
@@ -99,7 +99,8 @@ function createRenderResult() {
     // Collapsed: the tool panel header already carries status (label · done/error).
     // Surface nothing but failures so collapsed rows cost no transcript height.
     if (!options.expanded) {
-      if (!result.isError) return new Text("", 0, 0);
+      // Empty component per the harness docs: no visible content in this slot.
+      if (!result.isError) return new Container();
       const failure = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
       failure.setText(styledOutput);
       return failure;
