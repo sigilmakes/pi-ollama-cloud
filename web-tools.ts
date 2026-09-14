@@ -8,15 +8,42 @@
  * Does NOT depend on provider registration or model fetching internals.
  */
 
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   type ExtensionAPI,
   type ExtensionContext,
+  getAgentDir,
   keyHint,
   truncateToVisualLines,
 } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { OLLAMA_BASE } from "./models.ts";
+
+// --- Output bounds ---
+// Tool results land in model context verbatim and render in the transcript, so
+// the model-facing text is capped and the full content spills to disk (the
+// built-in tools' truncation convention: cap the text, note the spill path).
+const SEARCH_SNIPPET_CHARS = 300;
+const FETCH_PREVIEW_CHARS = Number(process.env.PI_OLLAMA_WEB_MAX_PREVIEW) || 4000;
+
+/** Spill full fetch text under the agent cache dir; return its path. */
+function spillFetchText(url: string, text: string): string {
+  const digest = createHash("sha256").update(url).digest("hex").slice(0, 12);
+  const dir = join(getAgentDir(), "cache", "ollama-web-fetches");
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `${digest}-${Date.now()}.txt`);
+  writeFileSync(path, text, "utf-8");
+  return path;
+}
+
+function truncateSnippet(text: string): string {
+  const trimmed = (text ?? "").trim();
+  if (trimmed.length <= SEARCH_SNIPPET_CHARS) return trimmed;
+  return `${trimmed.slice(0, SEARCH_SNIPPET_CHARS)}…`;
+}
 
 // --- Types ---
 
@@ -52,7 +79,8 @@ function noApiKeyError() {
   };
 }
 
-const PREVIEW_LINES = 8;
+// Collapsed result preview: match the built-in bash tool's 5-line convention.
+const PREVIEW_LINES = 5;
 
 /**
  * Build a renderResult handler that shows a truncated preview when collapsed
@@ -179,9 +207,12 @@ export function registerWebSearchTool(pi: ExtensionAPI) {
         }
 
         const data = (await res.json()) as SearchResponse;
-        const formatted = data.results
-          .map((r, i) => `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.content}`)
-          .join("\n\n");
+        const truncated = data.results.some((r) => (r.content ?? "").trim().length > SEARCH_SNIPPET_CHARS);
+        const formatted =
+          data.results
+            .map((r, i) => `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${truncateSnippet(r.content)}`)
+            .join("\n\n") +
+          (truncated ? "\n\n(Snippets truncated to 300 chars; fetch a result's URL for full content.)" : "");
 
         return {
           content: [{ type: "text", text: formatted || "No results found." }],
@@ -256,19 +287,27 @@ export function registerWebFetchTool(pi: ExtensionAPI) {
         }
 
         const data = (await res.json()) as FetchResponse;
+        const fullText = data.content ?? "";
+        const preview = fullText.slice(0, FETCH_PREVIEW_CHARS);
+        const truncated = fullText.length > preview.length;
+        const spillPath = fullText.length > 0 ? spillFetchText(params.url, fullText) : undefined;
         const formatted = [
           `Title: ${data.title}`,
-          "",
+          truncated
+            ? `(showing first ${FETCH_PREVIEW_CHARS} of ${fullText.length} chars — full text: ${spillPath})`
+            : "",
           "Content:",
-          data.content,
+          preview,
           "",
           `Links found: ${data.links?.length ?? 0}`,
           ...(data.links?.slice(0, 10).map((l) => `  - ${l}`) ?? []),
-        ].join("\n");
+        ]
+          .filter((line) => line !== "")
+          .join("\n");
 
         return {
           content: [{ type: "text", text: formatted }],
-          details: { title: data.title, content: data.content, links: data.links },
+          details: { title: data.title, content_chars: fullText.length, content_path: spillPath, links: data.links },
         };
       } catch (err) {
         return {

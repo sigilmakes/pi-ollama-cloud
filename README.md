@@ -242,8 +242,8 @@ That command updates `~/.pi/agent/cache/ollama-cloud-models.json` with a new `ti
 
 | Tool | Description |
 |---|---|
-| `ollama_web_search` | Search the web via Ollama Cloud's `/api/web_search` |
-| `ollama_web_fetch` | Fetch a web page via Ollama Cloud's `/api/web_fetch` |
+| `ollama_web_search` | Search the web via Ollama Cloud's `/api/web_search`. Snippets capped at 300 chars; fetch a result's URL for full content. |
+| `ollama_web_fetch` | Fetch a web page via Ollama Cloud's `/api/web_fetch`. Returns a 4000-char preview; full text is written under `~/.pi/agent/cache/ollama-web-fetches/` (path in the result) so context stays bounded. |
 
 Both tools use the same Ollama Cloud API key configured for the provider. No local Ollama server is needed.
 

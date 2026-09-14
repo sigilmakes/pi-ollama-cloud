@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Bounded tool output to the built-in truncation convention: `ollama_web_search` snippets capped at 300 chars (fetch a result's URL for full content); `ollama_web_fetch` returns a 4000-char preview plus the full text on disk under `~/.pi/agent/cache/ollama-web-fetches/` (path in result text and details). `PI_OLLAMA_WEB_MAX_PREVIEW` overrides the fetch preview size. Tool results no longer dump whole pages into context or the transcript.
+- Collapsed result preview now matches the built-in bash tool's 5-line convention (was 8).
+
 - Fix extension startup on pi v0.80.8+ after the removal of `AuthStorage`. Web tools now resolve the Ollama Cloud credential through the extension context's model registry.
 - Add `modelOverrides` config: per-model `contextWindow` / `maxTokens` registration overrides (global `~/.pi/agent/ollama-cloud.json` + project-local `.pi/ollama-cloud.json`, project wins per key). Applied on every provider registration so caps survive `/ollama-cloud-refresh`. Useful to cap a model's advertised context below its real limit so Pi compacts earlier.
 - Ship `ollama-cloud-config` skill teaching agents the config surface (sampling params, registration overrides, web tools). Available to any agent that installs the package.
